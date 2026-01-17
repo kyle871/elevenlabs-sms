@@ -1,11 +1,42 @@
-// Add this new route to your existing server.js
+import express from 'express';
+import twilio from 'twilio';
+import fetch from 'node-fetch';
+
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
+
+// Initialize the Twilio client using your environment variables
+const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+
+// --- DEBUG SECTION ---
+console.log("Checking Credentials...");
+console.log("AGENT_ID found:", process.env.AGENT_ID ? "YES" : "NO");
+console.log("XI_API_KEY found:", process.env.XI_API_KEY ? "YES" : "NO");
+console.log("TWILIO_NUMBER found:", process.env.TWILIO_NUMBER ? "YES" : "NO");
+
+// ROUTE 1: Triggered by ElevenLabs Agent (Sending a text)
+app.post('/elevenlabs-sms', async (req, res) => {
+    const { phone_number, message } = req.body;
+    try {
+        await twilioClient.messages.create({
+            body: message,
+            from: process.env.TWILIO_NUMBER,
+            to: phone_number
+        });
+        res.status(200).json({ status: 'success' });
+    } catch (error) {
+        console.error("Tool Error:", error.message);
+        res.status(500).json({ status: 'error' });
+    }
+});
+
+// ROUTE 2: Triggered by Twilio (Receiving a text)
 app.post('/incoming-sms', async (req, res) => {
-    const incomingMsg = req.body.Body; // The text the customer sent
-    const customerPhone = req.body.From; // The customer's phone number
+    const incomingMsg = req.body.Body;
+    const customerPhone = req.body.From;
 
     try {
-        // 1. Send the text to ElevenLabs Agent API
-        // You will need your Agent ID from the ElevenLabs dashboard
         const response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${process.env.AGENT_ID}/text-chat`, {
             method: 'POST',
             headers: {
@@ -16,19 +47,20 @@ app.post('/incoming-sms', async (req, res) => {
         });
 
         const data = await response.json();
-        const aiReply = data.agent_response; // The AI's text response
+        const aiReply = data.agent_response;
 
-        // 2. Reply back to the customer via Twilio
-        const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
-        await client.messages.create({
+        await twilioClient.messages.create({
             body: aiReply,
             from: process.env.TWILIO_NUMBER,
             to: customerPhone
         });
 
-        res.status(200).send('<Response></Response>'); // Tell Twilio we handled it
+        res.status(200).send('<Response></Response>'); 
     } catch (error) {
-        console.error("Error handling incoming SMS:", error);
+        console.error("Inbound Error:", error);
         res.status(500).end();
     }
 });
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
