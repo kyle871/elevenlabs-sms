@@ -1,16 +1,16 @@
-const express = require('express');
-const twilio = require('twilio');
+import express from 'express';
+import twilio from 'twilio';
+
 const app = express();
 
-// This line allows the server to read the JSON data sent by ElevenLabs
+// Required to read the JSON data sent by ElevenLabs
 app.use(express.json());
 
 app.post('/elevenlabs-sms', async (req, res) => {
-    // These names must match the "Properties" you set in ElevenLabs
     const { phone_number, message } = req.body;
     
-    // This pulls your secrets from the Render Environment tab
-    const client = new twilio(
+    // Pulls secrets from your Render Environment tab
+    const client = twilio(
         process.env.TWILIO_ACCOUNT_SID, 
         process.env.TWILIO_AUTH_TOKEN
     );
@@ -29,6 +29,5 @@ app.post('/elevenlabs-sms', async (req, res) => {
     }
 });
 
-// Render uses port 10000 by default for free services
 const PORT = process.env.PORT || 10000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
