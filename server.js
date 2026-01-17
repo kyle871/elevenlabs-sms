@@ -1,39 +1,34 @@
-import express from 'express';
-import twilio from 'twilio';
+// Add this new route to your existing server.js
+app.post('/incoming-sms', async (req, res) => {
+    const incomingMsg = req.body.Body; // The text the customer sent
+    const customerPhone = req.body.From; // The customer's phone number
 
-const app = express();
-app.use(express.json());
-
-// --- DEBUG SECTION ---
-console.log("Checking Environment Variables...");
-console.log("TWILIO_ACCOUNT_SID found:", process.env.TWILIO_ACCOUNT_SID ? "YES (Starts with " + process.env.TWILIO_ACCOUNT_SID.substring(0, 4) + ")" : "NO");
-console.log("TWILIO_AUTH_TOKEN found:", process.env.TWILIO_AUTH_TOKEN ? "YES" : "NO");
-console.log("TWILIO_NUMBER found:", process.env.TWILIO_NUMBER ? "YES" : "NO");
-// ---------------------
-
-app.post('/elevenlabs-sms', async (req, res) => {
-    const { phone_number, message } = req.body;
-    
     try {
-        // This is where the "username is required" error happens if SID is missing
-        const client = twilio(
-            process.env.TWILIO_ACCOUNT_SID, 
-            process.env.TWILIO_AUTH_TOKEN
-        );
-
-        await client.messages.create({
-            body: message,
-            from: process.env.TWILIO_NUMBER,
-            to: phone_number
+        // 1. Send the text to ElevenLabs Agent API
+        // You will need your Agent ID from the ElevenLabs dashboard
+        const response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${process.env.AGENT_ID}/text-chat`, {
+            method: 'POST',
+            headers: {
+                'xi-api-key': process.env.XI_API_KEY,
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify({ text: incomingMsg })
         });
-        
-        console.log(`Success: Sent to ${phone_number}`);
-        res.status(200).json({ status: 'success' });
+
+        const data = await response.json();
+        const aiReply = data.agent_response; // The AI's text response
+
+        // 2. Reply back to the customer via Twilio
+        const client = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
+        await client.messages.create({
+            body: aiReply,
+            from: process.env.TWILIO_NUMBER,
+            to: customerPhone
+        });
+
+        res.status(200).send('<Response></Response>'); // Tell Twilio we handled it
     } catch (error) {
-        console.error("Twilio Error:", error.message);
-        res.status(500).json({ status: 'error', message: error.message });
+        console.error("Error handling incoming SMS:", error);
+        res.status(500).end();
     }
 });
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
