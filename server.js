@@ -6,44 +6,14 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Initialize Twilio client
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
-// --- STARTUP DEBUG LOGS ---
-console.log("--- Initializing Server ---");
-console.log("TWILIO_ACCOUNT_SID:", process.env.TWILIO_ACCOUNT_SID ? "YES" : "NO");
-console.log("TWILIO_AUTH_TOKEN:", process.env.TWILIO_AUTH_TOKEN ? "YES" : "NO");
-console.log("TWILIO_NUMBER:", process.env.TWILIO_NUMBER ? "YES" : "NO");
-console.log("AGENT_ID:", process.env.AGENT_ID ? "YES" : "NO");
-console.log("XI_API_KEY:", process.env.XI_API_KEY ? "YES" : "NO");
-
-// 1. OUTBOUND: Triggered by the ElevenLabs Agent Tool (AI initiates a text)
-app.post('/elevenlabs-sms', async (req, res) => {
-    const { phone_number, message } = req.body;
-    console.log(`Outbound Request: Sending to ${phone_number}`);
-
-    try {
-        await twilioClient.messages.create({
-            body: message,
-            from: process.env.TWILIO_NUMBER,
-            to: phone_number
-        });
-        console.log("Outbound Success!");
-        res.status(200).json({ status: 'success' });
-    } catch (error) {
-        console.error("Outbound Error:", error.message);
-        res.status(500).json({ status: 'error', message: error.message });
-    }
-});
-
-// 2. INBOUND: Triggered by Twilio when you text your Twilio number
 app.post('/incoming-sms', async (req, res) => {
     const customerMsg = req.body.Body;
     const customerPhone = req.body.From;
     console.log(`Inbound from ${customerPhone}: "${customerMsg}"`);
 
     try {
-        // Step A: Send to ElevenLabs with the "text_only" override
         const response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${process.env.AGENT_ID}/text-chat`, {
             method: 'POST',
             headers: {
@@ -52,7 +22,6 @@ app.post('/incoming-sms', async (req, res) => {
             },
             body: JSON.stringify({ 
                 text: customerMsg,
-                // CRITICAL: Forces ElevenLabs to return a text response in agent_response
                 conversation_config_override: {
                     conversation: {
                         text_only: true
@@ -63,28 +32,41 @@ app.post('/incoming-sms', async (req, res) => {
 
         const data = await response.json();
         
-        // Extract the reply from the specific ElevenLabs field
-        const aiReply = data.agent_response; 
-        console.log(`AI Brain Reply: "${aiReply}"`);
+        // --- CRITICAL DEBUG LINE ---
+        console.log("RAW ELEVENLABS RESPONSE:", JSON.stringify(data));
 
-        // Step B: Safety check to prevent Twilio "Empty Body" error
+        // Attempting to find the reply in multiple common fields
+        const aiReply = data.agent_response || data.message || (data.transcript && data.transcript[0]?.message);
+        
+        console.log(`Extracted AI Reply: "${aiReply}"`);
+
         if (!aiReply || aiReply === "undefined") {
-            console.error("Error: ElevenLabs returned an empty response. Verify Security tab overrides are ON.");
+            // This will help us see if it's an API error like "Unauthorized"
+            console.error("AI reply failed. Check RAW ELEVENLABS RESPONSE above.");
             return res.status(200).send('<Response></Response>'); 
         }
 
-        // Step C: Send the AI's response back to your phone
         await twilioClient.messages.create({
             body: aiReply,
             from: process.env.TWILIO_NUMBER,
             to: customerPhone
         });
 
-        console.log("Inbound Reply Sent Successfully!");
         res.status(200).send('<Response></Response>'); 
     } catch (error) {
         console.error("Inbound Error logic:", error.message);
         res.status(500).end();
+    }
+});
+
+// Outbound tool endpoint (keep this as is)
+app.post('/elevenlabs-sms', async (req, res) => {
+    const { phone_number, message } = req.body;
+    try {
+        await twilioClient.messages.create({ body: message, from: process.env.TWILIO_NUMBER, to: phone_number });
+        res.status(200).json({ status: 'success' });
+    } catch (error) {
+        res.status(500).json({ status: 'error', message: error.message });
     }
 });
 
