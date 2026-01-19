@@ -6,7 +6,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Initialize Twilio client using environment variables
+// Initialize Twilio client
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 // --- STARTUP DEBUG LOGS ---
@@ -17,7 +17,7 @@ console.log("TWILIO_NUMBER:", process.env.TWILIO_NUMBER ? "YES" : "NO");
 console.log("AGENT_ID:", process.env.AGENT_ID ? "YES" : "NO");
 console.log("XI_API_KEY:", process.env.XI_API_KEY ? "YES" : "NO");
 
-// 1. OUTBOUND: Triggered by the ElevenLabs Agent Tool (AI starts the text)
+// 1. OUTBOUND: Triggered by the ElevenLabs Agent Tool (AI initiates a text)
 app.post('/elevenlabs-sms', async (req, res) => {
     const { phone_number, message } = req.body;
     console.log(`Outbound Request: Sending to ${phone_number}`);
@@ -36,36 +36,44 @@ app.post('/elevenlabs-sms', async (req, res) => {
     }
 });
 
-// 2. INBOUND: Triggered by Twilio when a customer texts your number
+// 2. INBOUND: Triggered by Twilio when you text your Twilio number
 app.post('/incoming-sms', async (req, res) => {
     const customerMsg = req.body.Body;
     const customerPhone = req.body.From;
-    console.log(`Inbound Message from ${customerPhone}: "${customerMsg}"`);
+    console.log(`Inbound from ${customerPhone}: "${customerMsg}"`);
 
     try {
-        // Step A: Send the text to the ElevenLabs Agent Brain
+        // Step A: Send to ElevenLabs with the "text_only" override
         const response = await fetch(`https://api.elevenlabs.io/v1/convai/agents/${process.env.AGENT_ID}/text-chat`, {
             method: 'POST',
             headers: {
                 'xi-api-key': process.env.XI_API_KEY,
                 'Content-Type': 'application/json'
             },
-            body: JSON.stringify({ text: customerMsg })
+            body: JSON.stringify({ 
+                text: customerMsg,
+                // CRITICAL: Forces ElevenLabs to return a text response in agent_response
+                conversation_config_override: {
+                    conversation: {
+                        text_only: true
+                    }
+                }
+            })
         });
 
         const data = await response.json();
         
-        // Specifically access 'agent_response' field from ElevenLabs
+        // Extract the reply from the specific ElevenLabs field
         const aiReply = data.agent_response; 
         console.log(`AI Brain Reply: "${aiReply}"`);
 
-        // Step B: Safety check to prevent Twilio from crashing on empty/undefined body
+        // Step B: Safety check to prevent Twilio "Empty Body" error
         if (!aiReply || aiReply === "undefined") {
-            console.error("Error: ElevenLabs returned an empty or undefined response.");
+            console.error("Error: ElevenLabs returned an empty response. Verify Security tab overrides are ON.");
             return res.status(200).send('<Response></Response>'); 
         }
 
-        // Step C: Text the AI's reply back to the customer via Twilio
+        // Step C: Send the AI's response back to your phone
         await twilioClient.messages.create({
             body: aiReply,
             from: process.env.TWILIO_NUMBER,
