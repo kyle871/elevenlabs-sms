@@ -6,7 +6,7 @@ const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
 
-// Initialize Twilio client
+// Initialize Twilio client using environment variables
 const twilioClient = twilio(process.env.TWILIO_ACCOUNT_SID, process.env.TWILIO_AUTH_TOKEN);
 
 // --- STARTUP DEBUG LOGS ---
@@ -17,7 +17,7 @@ console.log("TWILIO_NUMBER:", process.env.TWILIO_NUMBER ? "YES" : "NO");
 console.log("AGENT_ID:", process.env.AGENT_ID ? "YES" : "NO");
 console.log("XI_API_KEY:", process.env.XI_API_KEY ? "YES" : "NO");
 
-// 1. OUTBOUND: Triggered by the ElevenLabs Agent Tool
+// 1. OUTBOUND: Triggered by the ElevenLabs Agent Tool (AI starts the text)
 app.post('/elevenlabs-sms', async (req, res) => {
     const { phone_number, message } = req.body;
     console.log(`Outbound Request: Sending to ${phone_number}`);
@@ -36,7 +36,7 @@ app.post('/elevenlabs-sms', async (req, res) => {
     }
 });
 
-// 2. INBOUND: Triggered by Twilio when a customer texts you
+// 2. INBOUND: Triggered by Twilio when a customer texts your number
 app.post('/incoming-sms', async (req, res) => {
     const customerMsg = req.body.Body;
     const customerPhone = req.body.From;
@@ -54,10 +54,18 @@ app.post('/incoming-sms', async (req, res) => {
         });
 
         const data = await response.json();
-        const aiReply = data.agent_response;
+        
+        // FIX: Specifically access 'agent_response' field from ElevenLabs
+        const aiReply = data.agent_response; 
         console.log(`AI Brain Reply: "${aiReply}"`);
 
-        // Step B: Text that reply back to the customer
+        // Step B: Safety check to prevent Twilio from crashing on empty/undefined body
+        if (!aiReply || aiReply === "undefined") {
+            console.error("Error: ElevenLabs returned an empty or undefined response.");
+            return res.status(200).send('<Response></Response>'); 
+        }
+
+        // Step C: Text the AI's reply back to the customer via Twilio
         await twilioClient.messages.create({
             body: aiReply,
             from: process.env.TWILIO_NUMBER,
@@ -67,10 +75,3 @@ app.post('/incoming-sms', async (req, res) => {
         console.log("Inbound Reply Sent Successfully!");
         res.status(200).send('<Response></Response>'); 
     } catch (error) {
-        console.error("Inbound Error logic:", error.message);
-        res.status(500).end();
-    }
-});
-
-const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
