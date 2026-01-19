@@ -55,7 +55,7 @@ app.post('/incoming-sms', async (req, res) => {
 
         const data = await response.json();
         
-        // FIX: Specifically access 'agent_response' field from ElevenLabs
+        // Specifically access 'agent_response' field from ElevenLabs
         const aiReply = data.agent_response; 
         console.log(`AI Brain Reply: "${aiReply}"`);
 
@@ -75,3 +75,10 @@ app.post('/incoming-sms', async (req, res) => {
         console.log("Inbound Reply Sent Successfully!");
         res.status(200).send('<Response></Response>'); 
     } catch (error) {
+        console.error("Inbound Error logic:", error.message);
+        res.status(500).end();
+    }
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => console.log(`Server live on port ${PORT}`));
